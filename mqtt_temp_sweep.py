@@ -19,15 +19,15 @@ BROKER = "10.42.0.1"
 P_GAIN = 10
 I_GAIN = 2
 MAX_I_NEG = 0.3
-MAX_I_POS = 0.3
+MAX_I_POS = 1.0
 MAXWAIT = 1000      # Maximum waiting time for temp to settle in periods
 EM = 0.001          # Error margin for temp settle in °C
 # Number of periods where temp has to be in margin to be considered settled
-P_SETTLE = 5
+P_SETTLE = 2
 
 # sweep settings
 TEMP_START = 20    # starting temp in °C
-TEMP_STOP = 40     # stop temp
+TEMP_STOP = 60     # stop temp
 STEP = 0.5         # temperature steps
 
 
@@ -147,6 +147,7 @@ def main():
 
         f.close()
         print("done")
+        input()
 
 
 if __name__ == "__main__":
