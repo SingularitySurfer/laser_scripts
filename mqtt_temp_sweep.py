@@ -20,19 +20,16 @@ P_GAIN = 10
 I_GAIN = 2
 MAX_I_NEG = 0.1
 MAX_I_POS = 0.3
-MAXWAIT = 1000      # Maximum waiting time for temp to settle
-EM = 0.001          # Error margin for temp settle
+MAXWAIT = 1000      # Maximum waiting time for temp to settle in periods
+EM = 0.001          # Error margin for temp settle in °C
+# Number of periods where temp has to be in margin to be considered settled
+P_SETTLE = 5
 
 # sweep settings
 TEMP_START = 20    # starting temp in °C
-TEMP_STOP = 40     # stop temp 
+TEMP_STOP = 40     # stop temp
 STEP = 0.5         # temperature steps
 
-
-async def conf_temp(temp):
-    """asynchronous helper to send an miniconf command"""
-    interface = await miniconf.Miniconf.create(PREFIX, BROKER)
-    await interface.command("pidsettings/0/target", temp)
 
 async def setup_thermostat():
     interface = await miniconf.Miniconf.create(PREFIX, BROKER)
@@ -41,6 +38,7 @@ async def setup_thermostat():
     await interface.command("pidsettings/0/pid/0", P_GAIN)
     await interface.command("pidsettings/0/pid/1", I_GAIN)
     await interface.command("engage_iir/0", True)
+
 
 class TelemetryReader:
     """ Helper utility to read telemetry. """
@@ -66,6 +64,47 @@ class TelemetryReader:
         assert topic == self._telemetry_topic
         self.queue.put_nowait(json.loads(payload))
 
+    async def get_tele(telemetry_queue):
+        latest_values = await telemetry_queue.get()
+        return [latest_values['adcs'][0], latest_values['dacs'][0], latest_values['adcs'][1]]
+
+
+async def get_tele(telemetry_queue):
+    latest_values = await telemetry_queue.get()
+    return [latest_values['adcs'][0], latest_values['dacs'][0], latest_values['adcs'][1]]
+
+
+def set_laser_temp(temp):
+    telemetry_queue = asyncio.LifoQueue()
+
+    async def telemetry():
+        await TelemetryReader.create(PREFIX, BROKER, telemetry_queue)
+        try:
+            while True:
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            pass
+
+    telemetry_task = asyncio.Task(telemetry())
+
+    async def set_and_wait_settle():
+        interface = await miniconf.Miniconf.create(PREFIX, BROKER)
+
+        await interface.command('pidsettings/0/target', temp, retain=False)
+
+        data = []
+        for i in range(MAXWAIT):
+            data.append(await get_tele(telemetry_queue))
+            print(f'temp: {data[i][0]}')
+            if P_SETTLE < len([x[0] for x in data[-20:] if (x[0] > (temp-EM)) and (x[0] < (temp+EM))]):
+                break
+
+        telemetry_task.cancel()
+
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(set_and_wait_settle())
+
+
 def main():
 
     dwf = DwfLibrary()
@@ -77,9 +116,22 @@ def main():
 
         print("setup thermostat")
         asyncio.run(setup_thermostat())
-        print("initializing temp to ", TEMP_START)
-        asyncio.run(conf_temp(TEMP_START))
 
+        print("setup telemetry")
+        telemetry_queue = asyncio.LifoQueue()
+
+        async def telemetry():
+            await TelemetryReader.create(PREFIX, BROKER, telemetry_queue)
+            try:
+                while True:
+                    await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                pass
+
+        telemetry_task = asyncio.Task(telemetry())
+
+        print("initializing temp to ", TEMP_START)
+        asyncio.run(set_laser_temp(TEMP_START))
 
         print("sweep start")
         temp_range = np.arange(TEMP_START, TEMP_STOP, STEP)
@@ -91,8 +143,7 @@ def main():
         writer = csv.writer(f)
         v = []
         for temp in temp_range:
-            asyncio.run(conf_temp(temp))
-            time.sleep(5)
+            asyncio.run(set_laser_temp(temp))
             inp.status(False)
             print("analog input: {}", inp.statusSample(0))
             v.append(inp.statusSample(0))
