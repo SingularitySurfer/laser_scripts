@@ -18,7 +18,7 @@ BROKER = "10.42.0.1"
 # controller settings for LUCENT D2525P37
 P_GAIN = 10
 I_GAIN = 2
-MAX_I_NEG = 0.1
+MAX_I_NEG = 0.3
 MAX_I_POS = 0.3
 MAXWAIT = 1000      # Maximum waiting time for temp to settle in periods
 EM = 0.001          # Error margin for temp settle in °C
@@ -115,23 +115,11 @@ def main():
         inp.reset()
 
         print("setup thermostat")
-        asyncio.run(setup_thermostat())
-
-        print("setup telemetry")
-        telemetry_queue = asyncio.LifoQueue()
-
-        async def telemetry():
-            await TelemetryReader.create(PREFIX, BROKER, telemetry_queue)
-            try:
-                while True:
-                    await asyncio.sleep(1)
-            except asyncio.CancelledError:
-                pass
-
-        telemetry_task = asyncio.Task(telemetry())
+        loop = asyncio.get_event_loop()
+        temp = loop.run_until_complete(setup_thermostat())
 
         print("initializing temp to ", TEMP_START)
-        asyncio.run(set_laser_temp(TEMP_START))
+        set_laser_temp(TEMP_START)
 
         print("sweep start")
         temp_range = np.arange(TEMP_START, TEMP_STOP, STEP)
@@ -143,7 +131,7 @@ def main():
         writer = csv.writer(f)
         v = []
         for temp in temp_range:
-            asyncio.run(set_laser_temp(temp))
+            set_laser_temp(temp)
             inp.status(False)
             print("analog input: {}", inp.statusSample(0))
             v.append(inp.statusSample(0))
