@@ -126,18 +126,22 @@ def main():
 
         fig, ax = plt.subplots()
         ax.set_title("")
+        plt.ion()
+        plt.show()
 
         f = open('data.csv', 'w')
         writer = csv.writer(f)
         v = []
+        temps = []
         for temp in temp_range:
             set_laser_temp(temp)
             inp.status(False)
             print("analog input: {}", inp.statusSample(0))
             v.append(inp.statusSample(0))
+            temps.append(temp)
             writer.writerow([inp.statusSample(0)])
             fig.canvas.draw()
-            ax.plot(v)
+            ax.plot(temps, v)
             plt.pause(0.0001)
             fig.canvas.flush_events()
 
